@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Moonlight Academy 3D</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#b9d0ec;color:#fff;font-family:system-ui,-apple-system,sans-serif;touch-action:none}canvas{display:block;width:100%;height:100%}
+#hud{position:fixed;inset:10px 10px auto;display:flex;justify-content:space-between;gap:8px;pointer-events:none;align-items:flex-start}.glass{background:#17172bdd;border:1px solid #ffffff35;border-radius:13px;padding:10px 12px;box-shadow:0 5px 24px #18203d44;backdrop-filter:blur(8px);font-size:12px;line-height:1.45}.brand{font-size:11px;letter-spacing:.12em;color:#ff9dc8;font-weight:900}.objective{max-width:310px}.stats{text-align:right;min-width:145px}.meter{height:7px;background:#ffffff24;border-radius:9px;overflow:hidden;margin-top:4px;width:130px}.meter span{display:block;height:100%;width:0;background:linear-gradient(90deg,#7de8c0,#ffcf70,#ff668c);transition:width .15s}
+#hint{position:fixed;left:50%;bottom:118px;transform:translateX(-50%);padding:9px 14px;border-radius:30px;background:#17172de8;border:1px solid #ffffff44;font-size:12px;text-align:center;display:none;white-space:nowrap;max-width:95%}
+#toast{position:fixed;top:100px;left:50%;transform:translateX(-50%);padding:10px 16px;background:#251b3bec;border:1px solid #ff9dc8;border-radius:20px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;text-align:center;max-width:90%}
+#help{position:fixed;bottom:10px;left:10px;max-width:390px;font-size:11px;color:#e9e5ff}
+#touch{position:fixed;bottom:18px;right:14px;display:grid;grid-template-columns:repeat(3,47px);grid-template-rows:repeat(2,47px);gap:5px}
+#touch button{border:1px solid #ffffff55;background:#1a183dcc;color:#fff;border-radius:13px;font-size:20px;font-weight:800;touch-action:none}
+#touch button:active{background:#d85b99}
+#action{position:fixed;bottom:28px;right:185px;width:65px;height:65px;border-radius:50%;background:#ff8fbd;color:#261326;border:3px solid #ffe4f0;font-size:13px;font-weight:900;display:none}
+#overlay{position:fixed;inset:0;background:linear-gradient(145deg,#17203df2,#3a2349ed);display:grid;place-items:center;padding:20px}
+#card{max-width:520px;width:100%;padding:26px;border-radius:23px;background:#191a30f2;border:1px solid #ffffff36;box-shadow:0 25px 90px #0006}
+h1{font-size:clamp(32px,8vw,54px);line-height:.95;letter-spacing:-.06em;margin:0 0 16px}h1 span{color:#ff8fbd}p{color:#d8d5ed;line-height:1.55;font-size:14px}.btn{border:0;background:#ff8fbd;color:#271526;padding:14px 18px;border-radius:13px;font-weight:900;font-size:15px;width:100%}.tiny{font-size:11px;color:#aaa8c8}
+@media(pointer:fine){#touch{display:none}#action{display:none}}
+</style></head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+ <div class="glass objective"><div class="brand">MOONLIGHT ACADEMY · DAY 01</div><b id="goal">Mission: retrieve the blue notebook</b><div id="missionSub">Find it beside the courtyard fountain, then return to the pink entrance.</div></div>
+ <div class="glass stats"><b id="state">STATUS: NORMAL</b><br>Suspicion <span id="susText">0%</span><div class="meter"><span id="sus"></span></div><div style="margin-top:5px">Rival: <span id="rivalState">PATROLLING</span></div></div>
+</div>
+<div id="hint"></div><div id="toast"></div>
+<div id="help" class="glass">KEYBOARD: WASD / arrows move · SHIFT run · E interact/hide<br>Hide behind buildings and lockers to break line of sight.</div>
+<div id="touch">
+<button data-k="ArrowUp" style="grid-column:2;grid-row:1">▲</button>
+<button data-k="ArrowLeft" style="grid-column:1;grid-row:2">◀</button>
+<button data-k="ArrowDown" style="grid-column:2;grid-row:2">▼</button>
+<button data-k="ArrowRight" style="grid-column:3;grid-row:2">▶</button>
+</div><button id="action">ACTION<br>E</button>
+<div id="overlay"><div id="card">
+<h1>MOONLIGHT<br><span>ACADEMY</span></h1>
+<p><b>A 3D-style school stealth game you can play on your iPad.</b> Explore the courtyard, avoid rival student Reina, hide when she's suspicious, and recover a lost notebook.</p>
+<p>⌨️ <b>Keyboard:</b> WASD / arrows to move · Shift to run · E to interact<br>📱 <b>Touch:</b> use the arrow pad and ACTION button.</p>
+<button class="btn" id="start">ENTER THE ACADEMY →</button>
+<p class="tiny">Original browser prototype · no Unity installation required · best in landscape mode.</p>
+</div></div>
+<script>
+(()=>{
+const canvas=document.querySelector('#c'),ctx=canvas.getContext('2d');let w=innerWidth,h=innerHeight,dpr=1;
+function resize(){w=innerWidth;h=innerHeight;dpr=Math.min(devicePixelRatio||1,1.7);canvas.width=w*dpr;canvas.height=h*dpr;ctx.setTransform(dpr,0,0,dpr,0,0)}addEventListener('resize',resize);resize();
+const keys=new Set();let started=false,frame=0,hidden=false,gotNotebook=false,complete=false,suspicion=0,toastUntil=0;
+const p={x:0,z:7,dir:0};
+const rival={x:-5,z:-3,dir:0,state:'PATROLLING',lastX:-5,lastZ:-3,search:0,route:0};
+const route=[[-5,-3],[5,-4],[7,3],[0,5],[-7,2]];
+const blocks=[
+{x:-10,z:-8,w:7,d:6,h:4.5,c:'#8a9bd0',label:'CLASSROOMS'},
+{x:9,z:-8,w:7,d:6,h:4.7,c:'#c58bb1',label:'LIBRARY'},
+{x:-10,z:8,w:6,d:5,h:3.6,c:'#7eafa6',label:'ART ROOM'},
+{x:10,z:8,w:6,d:5,h:3.8,c:'#c8a07c',label:'CAFETERIA'}
+];
+const trees=[];for(let x of [-14,-7,7,14])for(let z of [-1,5,13])trees.push({x,z});
+const lockers=[{x:-4,z:1},{x:4,z:1},{x:-4,z:2},{x:4,z:2}];
+function cam(){return {x:p.x,y:8.8,z:p.z+10}}
+function project(x,y,z){let c=cam(),dx=x-c.x,dy=y-c.y,dz=z-c.z;let yaw=p.dir*.10;let rx=dx*Math.cos(yaw)-dz*Math.sin(yaw),rz=dx*Math.sin(yaw)+dz*Math.cos(yaw);let pitch=.31,py=dy*Math.cos(pitch)-rz*Math.sin(pitch),pz=dy*Math.sin(pitch)+rz*Math.cos(pitch);let focal=Math.min(w,h)*1.12,den=Math.max(2,pz+21);return {x:w/2+rx*focal/den,y:h*.46-py*focal/den,s:focal/den,d:pz}}
+function face(points,color,stroke){ctx.beginPath();points.forEach((v,i)=>{let q=project(...v);i?ctx.lineTo(q.x,q.y):ctx.moveTo(q.x,q.y)});ctx.closePath();ctx.fillStyle=color;ctx.fill();if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=1;ctx.stroke()}}
+function shade(c,a){let n=parseInt(c.slice(1),16),r=Math.max(0,Math.min(255,(n>>16)+a)),g=Math.max(0,Math.min(255,((n>>8)&255)+a)),b=Math.max(0,Math.min(255,(n&255)+a));return '#'+(1<<24|r<<16|g<<8|b).toString(16).slice(1)}
+function cube(x,z,ww,dd,hh,c,label=''){let x1=x-ww/2,x2=x+ww/2,z1=z-dd/2,z2=z+dd/2;
+face([[x1,0,z1],[x2,0,z1],[x2,0,z2],[x1,0,z2]],'#8d9b93');
+face([[x1,0,z1],[x2,0,z1],[x2,hh,z1],[x1,hh,z1]],c);
+face([[x2,0,z1],[x2,0,z2],[x2,hh,z2],[x2,hh,z1]],shade(c,-24));
+face([[x1,hh,z1],[x2,hh,z1],[x2,hh,z2],[x1,hh,z2]],shade(c,20));
+for(let xx=x1+.7;xx<x2-.3;xx+=1.45)face([[xx,.8,z1-.02],[xx+.7,.8,z1-.02],[xx+.7,2.2,z1-.02],[xx,2.2,z1-.02]],'#bceafa');
+if(label){let q=project(x,hh+.5,z);ctx.fillStyle='#fff';ctx.textAlign='center';ctx.font=`bold ${Math.max(8,q.s*.16)}px system-ui`;ctx.fillText(label,q.x,q.y)}
+}
+function person(x,z,color,name,isPlayer=false,isRival=false){let bob=Math.sin(frame*.08+(isRival?2:0))*0.04;let head=project(x,1.65+bob,z),body=project(x,.8+bob,z),foot=project(x,0,z),r=Math.max(3,head.s*.22),bw=Math.max(5,body.s*.43),bh=Math.max(10,Math.abs(foot.y-body.y));
+ctx.fillStyle='#11162940';ctx.beginPath();ctx.ellipse(foot.x,foot.y+2,bw*.8,bw*.22,0,0,7);ctx.fill();
+ctx.fillStyle=isPlayer?'#fff1f7':color;ctx.fillRect(body.x-bw/2,body.y,bw,bh*.65);
+ctx.fillStyle=isPlayer?'#e6d9f6':'#2a2d4a';ctx.fillRect(body.x-bw*.42,body.y+bh*.55,bw*.32,bh*.43);ctx.fillRect(body.x+bw*.1,body.y+bh*.55,bw*.32,bh*.43);
+ctx.fillStyle='#f5cbb8';ctx.beginPath();ctx.arc(head.x,head.y,r,0,7);ctx.fill();
+ctx.fillStyle=isPlayer?'#332947':shade(color,-35);ctx.beginPath();ctx.arc(head.x,head.y-r*.2,r*1.1,Math.PI,Math.PI*2);ctx.fill();
+if(isRival){ctx.fillStyle='#ed4b88';ctx.fillRect(head.x-r*1.15,head.y-r*1.05,r*2.3,r*.24)}
+if(name){ctx.fillStyle='#fff';ctx.font=`bold ${Math.max(8,head.s*.15)}px system-ui`;ctx.textAlign='center';ctx.fillText(name,head.x,head.y-r*1.65)}
+}
+function drawTree(x,z){let trunk=project(x,.7,z),top=project(x,2.5,z);ctx.fillStyle='#765a54';ctx.fillRect(trunk.x-top.s*.07,trunk.y,top.s*.14,Math.abs(top.y-trunk.y));ctx.fillStyle='#477f70';ctx.beginPath();ctx.arc(top.x,top.y,Math.max(7,top.s*.5),0,7);ctx.fill();ctx.fillStyle='#6ba38a';ctx.beginPath();ctx.arc(top.x-top.s*.16,top.y-top.s*.15,Math.max(4,top.s*.27),0,7);ctx.fill()}
+function draw(){
+frame++;ctx.clearRect(0,0,w,h);let sky=ctx.createLinearGradient(0,0,0,h);sky.addColorStop(0,'#91b9e6');sky.addColorStop(.58,'#d7cde8');sky.addColorStop(1,'#d6d9ce');ctx.fillStyle=sky;ctx.fillRect(0,0,w,h);
+ctx.fillStyle='#8397b8';ctx.beginPath();ctx.moveTo(0,h*.47);for(let x=0;x<=w;x+=55)ctx.lineTo(x,h*.4+Math.sin(x*.01)*15);ctx.lineTo(w,h);ctx.lineTo(0,h);ctx.fill();
+face([[-17,0,-15],[17,0,-15],[17,0,17],[-17,0,17]],'#aab9a3');
+for(let x=-16;x<17;x+=2)for(let z=-14;z<17;z+=2)face([[x,.015,z],[x+2,.015,z],[x+2,.015,z+2],[x,.015,z+2]],((x+z)/2)%2===0?'#c6cbbb':'#b7c2b1');
+face([[-2,0,17],[2,0,17],[2,0,-14],[-2,0,-14]],'#e0d8ca');
+blocks.forEach(b=>cube(b.x,b.z,b.w,b.d,b.h,b.c,b.label));
+trees.forEach(t=>drawTree(t.x,t.z));
+ // fountain and notebook
+let f=project(0,.2,-1.7);ctx.fillStyle='#77899e';ctx.beginPath();ctx.ellipse(f.x,f.y,Math.max(13,f.s*1.1),Math.max(5,f.s*.34),0,0,7);ctx.fill();ctx.fillStyle='#72dff3';ctx.beginPath();ctx.ellipse(f.x,f.y-3,Math.max(10,f.s*.88),Math.max(4,f.s*.26),0,0,7);ctx.fill();
+if(!gotNotebook){let n=project(.9,.35,-1.7);ctx.save();ctx.shadowColor='#65eaff';ctx.shadowBlur=24;ctx.fillStyle='#50e6ff';ctx.translate(n.x,n.y+Math.sin(frame*.1)*4);ctx.rotate(.13);ctx.fillRect(-n.s*.26,-n.s*.34,n.s*.52,n.s*.68);ctx.restore()}
+ // entrance gate
+let g=project(0,0,15);ctx.strokeStyle='#ff7eb6';ctx.lineWidth=Math.max(3,g.s*.12);ctx.beginPath();ctx.moveTo(g.x-g.s,g.y);ctx.lineTo(g.x-g.s,g.y-g.s*2.2);ctx.lineTo(g.x+g.s,g.y-g.s*2.2);ctx.lineTo(g.x+g.s,g.y);ctx.stroke();
+ // lockers are cover objects
+lockers.forEach(l=>cube(l.x,l.z,.85,.75,1.9,'#7686aa'));
+person(rival.x,rival.z,'#f5a1c5','REINA',false,true);
+if(!hidden)person(p.x,p.z,'#fff','YOU',true);
+ // tiny compass/minimap
+const mw=110,mh=88,mx=w-mw-13,my=h-mh-12;ctx.fillStyle='#17172acc';ctx.fillRect(mx,my,mw,mh);ctx.strokeStyle='#ffffff55';ctx.strokeRect(mx,my,mw,mh);
+const mp=(x,z)=>({x:mx+(x+17)/34*mw,y:my+(z+15)/32*mh});blocks.forEach(b=>{let q=mp(b.x,b.z);ctx.fillStyle=b.c;ctx.fillRect(q.x-b.w/2/34*mw,q.y-b.d/2/32*mh,b.w/34*mw,b.d/32*mh)});
+let rp=mp(rival.x,rival.z),pp=mp(p.x,p.z);ctx.fillStyle='#ff72ac';ctx.beginPath();ctx.arc(rp.x,rp.y,3.5,0,7);ctx.fill();ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(pp.x,pp.y,3.5,0,7);ctx.fill();
+document.querySelector('#sus').style.width=suspicion+'%';document.querySelector('#susText').textContent=Math.round(suspicion)+'%';document.querySelector('#state').textContent=hidden?'STATUS: HIDDEN':(suspicion>60?'STATUS: EXPOSED':(keys.has('shift')?'STATUS: RUNNING':'STATUS: NORMAL'));document.querySelector('#rivalState').textContent=rival.state;
+updateHint();requestAnimationFrame(draw)}
+function dist(a,b){return Math.hypot(a.x-b.x,a.z-b.z)}
+function lineOfSight(){let d=dist(p,rival);if(d>9.5||hidden)return false;let ang=Math.atan2(p.x-rival.x,p.z-rival.z),diff=Math.atan2(Math.sin(ang-rival.dir),Math.cos(ang-rival.dir));if(Math.abs(diff)>0.95)return false;
+ // Approximate obstruction test using classroom/cafeteria rectangles
+for(let b of blocks){if(p.x>b.x-b.w/2-.3&&p.x<b.x+b.w/2+.3&&p.z>b.z-b.d/2-.3&&p.z<b.z+b.d/2+.3)return false}
+return true}
+function updateRival(dt){
+let sees=lineOfSight(),running=keys.has('shift'),d=dist(p,rival);
+if(sees){suspicion=Math.min(100,suspicion+dt*(running?24:13));rival.lastX=p.x;rival.lastZ=p.z}
+else suspicion=Math.max(0,suspicion-dt*(hidden?18:7));
+if(running&&d<6&&!hidden&&rival.state==='PATROLLING'){rival.lastX=p.x;rival.lastZ=p.z;rival.state='INVESTIGATING';rival.search=2}
+if(suspicion>=100&&!hidden)rival.state='CHASING';
+let tx, tz, speed=.75;
+if(rival.state==='PATROLLING'){let target=route[rival.route];tx=target[0];tz=target[1];speed=.8;if(Math.hypot(tx-rival.x,tz-rival.z)<.5)rival.route=(rival.route+1)%route.length}
+else if(rival.state==='INVESTIGATING'){tx=rival.lastX;tz=rival.lastZ;speed=1.15;rival.search-=dt;if(rival.search<=0){rival.state='SEARCHING';rival.search=4}}
+else if(rival.state==='CHASING'){tx=p.x;tz=p.z;speed=1.8;if(hidden){rival.state='SEARCHING';rival.search=3;suspicion=Math.min(suspicion,45)}else if(d>13){rival.state='SEARCHING';rival.lastX=p.x;rival.lastZ=p.z;rival.search=4}}
+else {tx=rival.lastX;tz=rival.lastZ;speed=.85;rival.search-=dt;if(rival.search<=0){rival.state='PATROLLING';suspicion=Math.min(suspicion,25)}}
+let dx=tx-rival.x,dz=tz-rival.z,dd=Math.hypot(dx,dz);if(dd>.05){rival.x+=dx/dd*speed*dt;rival.z+=dz/dd*speed*dt;rival.dir=Math.atan2(dx,dz)}
+if(d<.7&&!hidden&&rival.state==='CHASING'){rival.state='SEARCHING';rival.search=4;suspicion=45;toast('Reina caught up! You escaped into the crowd—hide and try again.')}
+}
+let last=performance.now();
+function update(now){let dt=Math.min((now-last)/1000,.04);last=now;
+if(started&&!complete&&!hidden){
+let dx=0,dz=0;if(keys.has('w')||keys.has('arrowup'))dz-=1;if(keys.has('s')||keys.has('arrowdown'))dz+=1;if(keys.has('a')||keys.has('arrowleft'))dx-=1;if(keys.has('d')||keys.has('arrowright'))dx+=1;
+let m=Math.hypot(dx,dz)||1,speed=keys.has('shift')?4.2:2.35;
+p.x+=dx/m*speed*dt;p.z+=dz/m*speed*dt;p.x=Math.max(-15,Math.min(15,p.x));p.z=Math.max(-13,Math.min(16,p.z));
+for(let b of blocks){if(Math.abs(p.x-b.x)<b.w/2+.35&&Math.abs(p.z-b.z)<b.d/2+.35){if(Math.abs(p.x-b.x)/(b.w/2+.35)>Math.abs(p.z-b.z)/(b.d/2+.35))p.x+=(p.x>b.x?1:-1)*speed*dt;else p.z+=(p.z>b.z?1:-1)*speed*dt}}
+for(let l of lockers){if(Math.abs(p.x-l.x)<.62&&Math.abs(p.z-l.z)<.62){if(Math.abs(p.x-l.x)>Math.abs(p.z-l.z))p.x+=(p.x>l.x?1:-1)*speed*dt;else p.z+=(p.z>l.z?1:-1)*speed*dt}}
+if(dx||dz)p.dir=Math.atan2(dx,dz);
+}
+if(started&&!complete)updateRival(dt);
+requestAnimationFrame(update)}
+function updateHint(){let hint=document.querySelector('#hint'),text='';if(!gotNotebook&&dist(p,{x:.9,z:-1.7})<2.1)text='Press E / ACTION to pick up the blue notebook';else if(gotNotebook&&dist(p,{x:0,z:15})<2.3)text='Press E / ACTION to finish the mission';else if(lockers.some(l=>dist(p,l)<1.7))text=hidden?'Press E / ACTION to leave the hiding spot':'Press E / ACTION to hide in the locker';else if(dist(p,rival)<2.5)text='Reina: “Hmm… what are you doing here?”';hint.textContent=text;hint.style.display=text?'block':'none'}
+function toast(msg){let el=document.querySelector('#toast');el.textContent=msg;el.style.opacity=1;toastUntil=performance.now()+2300}
+function interact(){if(!started)return;if(hidden){hidden=false;toast('You stepped out of hiding.');return}
+if(!gotNotebook&&dist(p,{x:.9,z:-1.7})<2.1){gotNotebook=true;document.querySelector('#goal').textContent='Mission: return the notebook to the pink entrance';document.querySelector('#missionSub').textContent='Head south along the path. Keep an eye on Reina.';toast('Notebook acquired! Now return to the entrance.');return}
+if(gotNotebook&&dist(p,{x:0,z:15})<2.3){complete=true;document.querySelector('#goal').textContent='MISSION COMPLETE ✨';document.querySelector('#missionSub').textContent='You retrieved the notebook and returned safely.';toast('Day complete! You outsmarted Reina.');return}
+let spot=lockers.find(l=>dist(p,l)<1.7);if(spot){hidden=true;suspicion=Math.max(0,suspicion-20);toast('Hidden! Reina cannot see you here. Press E to leave.');return}
+if(dist(p,rival)<2.5)toast('Reina: “Keep your eyes open. This school has secrets.”');else toast('Nothing to interact with nearby.')}
+addEventListener('keydown',e=>{let k=e.key.toLowerCase();if(['arrowup','arrowdown','arrowleft','arrowright',' '].includes(k))e.preventDefault();keys.add(k);if(k==='e')interact();if(k==='escape')toast('Pause menu: press Escape again to continue.')});
+addEventListener('keyup',e=>keys.delete(e.key.toLowerCase()));
+document.querySelectorAll('[data-k]').forEach(b=>{let k=b.dataset.k.toLowerCase();b.addEventListener('pointerdown',e=>{e.preventDefault();keys.add(k);b.setPointerCapture(e.pointerId)});['pointerup','pointercancel','lostpointercapture'].forEach(ev=>b.addEventListener(ev,()=>keys.delete(k)))});
+document.querySelector('#action').addEventListener('click',interact);
+document.querySelector('#start').addEventListener('click',()=>{started=true;document.querySelector('#overlay').style.display='none';toast('Find the blue notebook. Watch Reina’s patrol!')});
+draw();update(performance.now());
+})();
+</script></body></html>

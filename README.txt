@@ -1,0 +1,1 @@
+Moonlight Academy browser game prototype. Open index.html in a modern browser. Keyboard: WASD/arrows, Shift to run, E to interact. iPad touch arrows and ACTION button are included. This is a lightweight 3D-style perspective prototype, not a native Unity build.
